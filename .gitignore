@@ -1,0 +1,41 @@
+# CMake / build
+/build/
+/cmake-build-*/
+/out/
+
+# In-source configure mistakes
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+
+# Visual Studio / MSVC
+.vs/
+*.vcxproj.user
+*.sln.docstates
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+.env
+.env.*
+
+# Tools & runtime outputs
+generator_preview.jpg
+output_parking.jpg
+
+# Regenerate with: python tools/extract_frame.py
+data/frame.png
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
