@@ -1,166 +1,394 @@
 # Parking Space Detector (CUDA)
 
-Real-time parking occupancy demo: CUDA kernels convert frames to grayscale, run Sobel edges, apply an edge-based effect, and compute per-spot variance inside fixed ROIs. OpenCV loads video and draws **green (free)** / **red (occupied)** boxes from a simple coordinate file.
+Real-time parking occupancy demo using CUDA and OpenCV. Each video frame is processed on the GPU: BGR → grayscale → Sobel edges → visual effect, plus per-spot variance inside fixed ROIs. OpenCV draws **green (free)** / **red (occupied)** boxes from a simple coordinate file.
+
+Works on **Windows** and **Linux** (CMake + NVIDIA GPU).
 
 ---
 
-## What you need
+## Table of contents
 
-| Requirement | Notes |
-|-------------|--------|
-| **NVIDIA GPU** + driver | CUDA-capable GPU |
-| **CUDA Toolkit** | Match your driver (CMake uses the CUDA language) |
-| **CMake** | 3.18 or newer |
-| **C++17 compiler** | **Windows:** MSVC with CUDA support. **Linux:** GCC or Clang |
-| **OpenCV** | Built or installed so CMake `find_package(OpenCV)` succeeds |
-| **Python 3** + **OpenCV-Python** | Optional; for `tools/*.py` (frame extract + spot editor) |
-
----
-
-## GPU architecture (important)
-
-The build targets **compute capability 8.6** (e.g. RTX 3050 — Ampere). If your GPU is different, edit `CMakeLists.txt`:
-
-```cmake
-set(CMAKE_CUDA_ARCHITECTURES 86)
-```
-
-Common values: `75` (Turing), `86` (Ampere consumer), `89` (Ada Lovelace), etc. See [NVIDIA CUDA GPUs](https://developer.nvidia.com/cuda-gpus).
+1. [Requirements](#requirements)
+2. [GPU architecture](#gpu-architecture)
+3. [Installation](#installation)
+   - [Windows](#windows)
+   - [Linux](#linux)
+   - [Linux without admin (lab PC)](#linux-without-admin-lab-pc)
+4. [Configure & build](#configure--build)
+5. [Run](#run)
+6. [Parking spot editor (Python)](#parking-spot-editor-python)
+7. [Tuning detection](#tuning-detection)
+8. [Project layout](#project-layout)
+9. [Troubleshooting](#troubleshooting)
+10. [Clean rebuild](#clean-rebuild)
 
 ---
 
-## Build (CMake)
+## Requirements
 
-From the **project root**:
+| Component | Required | Notes |
+|-----------|----------|--------|
+| NVIDIA GPU | Yes | CUDA-capable; check with `nvidia-smi` |
+| NVIDIA driver | Yes | Must match your CUDA toolkit |
+| CUDA Toolkit | Yes | `nvcc --version`; used by CMake CUDA language |
+| CMake | Yes | 3.18+ (`cmake --version`) |
+| C++17 compiler | Yes | **Windows:** MSVC. **Linux:** GCC or Clang |
+| OpenCV (C++) | Yes | Headers + libs; `find_package(OpenCV)` |
+| Python 3 + opencv-python | Optional | Only for `tools/*.py` |
+
+**Executables produced:**
+
+| Binary | Purpose |
+|--------|---------|
+| `parking_detector` | Main app: video + parking spots |
+| `image_filter` | Demo: grayscale / Sobel / effect on one image |
+
+---
+
+## GPU architecture
+
+Kernels must be compiled for your GPU's **compute capability**. Set this in `CMakeLists.txt` or pass `-DCUDA_ARCH=XX` at configure time.
+
+| GPU examples | `CUDA_ARCH` |
+|--------------|-------------|
+| GT 1030, GTX 1050 | `61` |
+| GTX 1660, RTX 2060 | `75` |
+| RTX 3050, RTX 3060 | `86` |
+| RTX 4060 | `89` |
+
+**Find your value:**
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release
+nvidia-smi --query-gpu=name,compute_cap --format=csv
+```
+
+Reference: [NVIDIA CUDA GPUs](https://developer.nvidia.com/cuda-gpus)
+
+Wrong architecture → build may succeed but runtime errors like *no kernel image is available*.
+
+---
+
+## Installation
+
+### Windows
+
+1. **NVIDIA driver** — from [NVIDIA Driver Downloads](https://www.nvidia.com/Download/index.aspx) or GeForce Experience.
+2. **CUDA Toolkit** — [CUDA Toolkit](https://developer.nvidia.com/cuda-downloads) (match driver; e.g. CUDA 12.x).
+3. **Visual Studio 2022** — workload "Desktop development with C++" (MSVC + CMake support).
+4. **CMake** — via Visual Studio or [cmake.org](https://cmake.org/download/).
+5. **OpenCV** — one of:
+   - **vcpkg:** `vcpkg install opencv` and use `-DCMAKE_TOOLCHAIN_FILE=...`
+   - Prebuilt / self-built OpenCV; note path to `OpenCVConfig.cmake`
+
+Verify:
+
+```powershell
+nvcc --version
+cmake --version
+nvidia-smi
+```
+
+### Linux
+
+**With admin (`sudo`):**
+
+```bash
+sudo apt update
+sudo apt install -y build-essential cmake libopencv-dev
+# CUDA: install from NVIDIA repo or: sudo apt install nvidia-cuda-toolkit
+```
+
+**Verify:**
+
+```bash
+nvidia-smi
+nvcc --version
+cmake --version
+pkg-config --modversion opencv4
+```
+
+Typical OpenCV CMake path (Debian/Ubuntu):
+
+```text
+/usr/lib/x86_64-linux-gnu/cmake/opencv4
+```
+
+### Linux without admin (lab PC)
+
+You can build if these already exist (no `sudo`):
+
+```bash
+which gcc g++ cmake make nvcc
+pkg-config --modversion opencv4
+find /usr -name "OpenCVConfig.cmake" 2>/dev/null
+```
+
+Use system OpenCV via `-DOpenCV_DIR=...`. Python tools only:
+
+```bash
+pip3 install --user opencv-python
+```
+
+---
+
+## Configure & build
+
+Always run from the **project root**. Create `build/` with `cmake -B build` first.
+
+### Quick reference
+
+| Platform | Configure | Build | Typical executable |
+|----------|-----------|-------|-------------------|
+| Linux | `cmake -B build -DCMAKE_BUILD_TYPE=Release -DCUDA_ARCH=61` | `cmake --build build -j4` | `build/parking_detector` |
+| Windows (VS) | `cmake -B build -DCMAKE_BUILD_TYPE=Release -DCUDA_ARCH=86` | `cmake --build build --config Release` | `build\Release\parking_detector.exe` |
+
+Add `-DOpenCV_DIR=...` if `find_package(OpenCV)` fails.
+
+---
+
+### Linux (full example — GT 1030)
+
+```bash
+cd Parking-Space-Detector-Using-Cuda
+
+cmake -B build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCUDA_ARCH=61 \
+  -DOpenCV_DIR=/usr/lib/x86_64-linux-gnu/cmake/opencv4
+
+cmake --build build -j4
+```
+
+**GCC too new for nvcc** (e.g. GCC 14 + CUDA 12.4):
+
+```bash
+ls /usr/bin/g++-*
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DCUDA_ARCH=61 \
+  -DCMAKE_CUDA_HOST_COMPILER=/usr/bin/g++-13 \
+  -DOpenCV_DIR=/usr/lib/x86_64-linux-gnu/cmake/opencv4
+```
+
+---
+
+### Windows (Visual Studio generator)
+
+```powershell
+cd Parking-Space-Detector-Using-Cuda
+
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DCUDA_ARCH=86
+
+# If using vcpkg:
+# cmake -B build -DCMAKE_BUILD_TYPE=Release -DCUDA_ARCH=86 `
+#   -DCMAKE_TOOLCHAIN_FILE=C:\path\to\vcpkg\scripts\buildsystems\vcpkg.cmake
+
+# If OpenCV not found:
+# cmake -B build -DCMAKE_BUILD_TYPE=Release -DCUDA_ARCH=86 `
+#   -DOpenCV_DIR=C:\path\to\opencv\build
+
 cmake --build build --config Release
 ```
 
-Always run **`cmake -B build ...`** first; otherwise you get *missing CMakeCache.txt*.
+Outputs: `build\Release\parking_detector.exe`, `build\Release\image_filter.exe`.
 
-**First time OpenCV location (if `find_package` fails):** find the folder that contains `OpenCVConfig.cmake`, then configure with:
+---
 
-```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DOpenCV_DIR="C:/path/to/OpenCV/build"
+### Windows (Ninja)
+
+```powershell
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCUDA_ARCH=86
+cmake --build build
 ```
 
-With **vcpkg**, install `opencv`, then pass `-DCMAKE_TOOLCHAIN_FILE=C:/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake` (with or instead of `OpenCV_DIR`, depending on your setup).
+Outputs often directly in `build\`.
 
-**Windows (Visual Studio):** use `--config Release`; executables are usually `build\Release\*.exe`. With **Ninja**, they are often in `build\`.
+---
 
-**Outputs:**
+### What to change in `CMakeLists.txt`
 
-| Executable | Purpose |
-|------------|---------|
-| `parking_detector` | Main app: video + parking spots |
-| `image_filter` | Standalone demo: grayscale / Sobel / effect on one image |
+| Setting | Where | When |
+|---------|--------|------|
+| `CUDA_ARCH` default | Top of `CMakeLists.txt` | Default GPU for your dev machine |
+| `OpenCV_DIR` | CMake command line | When `find_package` fails |
+| `CMAKE_CUDA_HOST_COMPILER` | CMake command line | Linux: nvcc rejects GCC 14 |
+| MSVC `/Zc:preprocessor` | Automatic (`if(MSVC)`) | Do not add on Linux |
+
+Override architecture without editing the file:
+
+```bash
+cmake -B build -DCUDA_ARCH=61
+```
 
 ---
 
 ## Run
 
-Defaults are **`data/sample`** (spots) and **`data/sample.mp4`** (video)—paths are relative to **your current folder**, not to the executable. Easiest fix: open a shell in the project root, then run `build/parking_detector` or `build\Release\parking_detector.exe`. Or pass two explicit paths:
-
-```bash
-build/parking_detector my_spots.txt my_video.mp4
-```
+Paths are relative to your **current working directory**, not the executable. **Run from the project root** or pass full paths.
 
 ### Main detector
 
+**Linux:**
+
 ```bash
-build/parking_detector
+./build/parking_detector
+./build/parking_detector data/sample /path/to/video.mp4
+```
+
+**Windows:**
+
+```powershell
 .\build\Release\parking_detector.exe
+.\build\Release\parking_detector.exe data\sample data\sample.mp4
 ```
 
 **Arguments:**
 
-1. **Positions file** — one `x,y` per line (top-left of **40×80** ROI). Default: `data/sample`.
-2. **Video file.** Default: `data/sample.mp4`.
+1. Positions file — one `x,y` per line (top-left of ROI). Default: `data/sample`
+2. Video file. Default: `data/sample.mp4`
+
+> `data/sample.mp4` may not be in the repo; add your own video under `data/` or pass a path.
 
 **Keyboard:**
 
 | Key | Action |
 |-----|--------|
 | `q` | Quit |
-| `s` | Save screenshot `output_parking.jpg` |
+| `s` | Save `output_parking.jpg` |
 
-Occupancy uses grayscale variance inside each ROI vs. an internal threshold (`VARIANCE_THRESHOLD` in `src/main.cu`). Tune threshold or ROI size there if needed.
+**Windows:** ensure OpenCV DLLs are on `PATH` (vcpkg / OpenCV `bin` folder).
 
-### Image filter demo
+**Linux:** if missing `.so` errors:
 
 ```bash
-build/image_filter path/to/image.jpg
-build\Release\image_filter.exe path\to\image.jpg    # typical VS output on Windows
+export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
 ```
-
-Shows original (color window uses the loaded Mat), grayscale, edges, and effect. Press any key to close.
 
 ---
 
-## Mark parking spots (`parking_generator.py`)
+### Image filter demo
 
-Generate or edit the `x,y` list using a still frame from your video.
-
-1. Install OpenCV for Python: `pip install opencv-python`
-2. From the **project root**, save a reference frame (defaults: `data/sample.mp4` → `data/frame.png`):
+**Linux:**
 
 ```bash
-python tools/extract_frame.py
-python tools/extract_frame.py --ms 5000
+./build/image_filter path/to/image.jpg
 ```
 
-3. Run the spot editor:
+**Windows:**
 
-```bash
-python tools/parking_generator.py
-python tools/parking_generator.py --image data/frame.png --slots data/sample
+```powershell
+.\build\Release\image_filter.exe path\to\image.jpg
 ```
 
-**Controls:** left click = add spot (40×80 from click), right click = remove spot under cursor, `q` = quit, `s` = save overlay preview `generator_preview.jpg`. Positions are saved after each edit.
+Shows original, grayscale, edges, and effect. Press any key to close.
 
-**Changing the spot box (width / height):** each line in the spots file is the **top-left corner** of a rectangle. The size is **not** stored in the file—it is fixed in code.
+---
 
-- Editor overlay: edit **`ROI_W`** and **`ROI_H`** at the top of `tools/parking_generator.py`, then re-run the tool so new clicks match the new box.
-- Live detector: set the **same** **`ROI_W`** and **`ROI_H`** in `src/main.cu` (near `VARIANCE_THRESHOLD`), then **rebuild** `parking_detector`. If these two files disagree, on-screen boxes and variance math will not match what you marked in Python.
-- **Sensitivity** (free vs occupied) is separate: adjust **`VARIANCE_THRESHOLD`** in `src/main.cu` only; rebuild after changing it.
+## Parking spot editor (Python)
+
+Mark spots on a still frame; saves the same `x,y` format as `data/sample`.
+
+1. **Python OpenCV** (user install OK on lab PCs):
+
+   ```bash
+   pip install opencv-python
+   # or: pip3 install --user opencv-python
+   ```
+
+2. **Extract a frame** from video:
+
+   ```bash
+   python tools/extract_frame.py
+   python tools/extract_frame.py --ms 5000
+   python tools/extract_frame.py --video data/sample.mp4 --output data/frame.png
+   ```
+
+3. **Run editor:**
+
+   ```bash
+   python tools/parking_generator.py
+   python tools/parking_generator.py --image data/frame.png --slots data/sample
+   ```
+
+**Controls:**
+
+| Input | Action |
+|-------|--------|
+| Left click | Add spot (40×80 box from click) |
+| Right click | Remove spot under cursor |
+| `q` | Quit |
+| `s` | Save preview `generator_preview.jpg` |
+
+Spots save to the slots file after each edit.
+
+---
+
+## Tuning detection
+
+Spot **size** is fixed in code (not in the spots file). Keep these in sync:
+
+| File | Constants |
+|------|-----------|
+| `tools/parking_generator.py` | `ROI_W`, `ROI_H` |
+| `src/main.cu` | `ROI_W`, `ROI_H`, `VARIANCE_THRESHOLD` |
+
+- Change ROI size in **both** files, then **rebuild** `parking_detector`.
+- **Sensitivity** (free vs occupied): only `VARIANCE_THRESHOLD` in `src/main.cu`; rebuild after changes.
 
 ---
 
 ## Project layout
 
 ```
-├── CMakeLists.txt
+├── CMakeLists.txt          # Build config (Windows + Linux)
+├── README.md
 ├── data/
-│   ├── sample            # example spots (default)
-│   ├── sample.mp4        # example video (default)
-│   └── frame.png         # optional reference still (from extract_frame or your own)
+│   ├── sample              # Example spot coordinates (default)
+│   ├── sample.mp4          # Your video (add locally)
+│   └── frame.png           # Reference still (from extract_frame.py)
 ├── src/
-│   ├── main.cu           # parking demo entry
-│   ├── kernels.cu / kernels.cuh
-│   └── image_filter/     # standalone filter demo
+│   ├── main.cu             # Parking demo entry
+│   ├── kernels.cu
+│   ├── kernels.cuh
+│   └── image_filter/       # Single-image filter demo
 └── tools/
-    ├── extract_frame.py   # video → PNG for the spot editor
+    ├── extract_frame.py
     └── parking_generator.py
 ```
 
-Place your **video** next to your coordinates file or pass full paths to `parking_detector`.
+---
+
+## Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| `missing CMakeCache.txt` | Run `cmake -B build ...` before `cmake --build` |
+| `find_package(OpenCV)` failed | Pass `-DOpenCV_DIR=...` (folder with `OpenCVConfig.cmake`) |
+| Linux: `unknown argument '/Zc:preprocessor'` | Use updated `CMakeLists.txt` with `if(MSVC)` |
+| `no kernel image is available` | Wrong `CUDA_ARCH`; use e.g. `61` for GT 1030 |
+| nvcc: `unsupported GNU version` | `-DCMAKE_CUDA_HOST_COMPILER=/usr/bin/g++-13` |
+| `Cannot open video` | Add `data/sample.mp4` or pass video path as arg 2 |
+| `No parking spots loaded` | Check positions file path and `x,y` format |
+| OpenCV windows don't show (SSH) | Need local display or X11 forwarding; app uses `cv::imshow` |
+| Windows: DLL not found | Add OpenCV `bin` to `PATH` |
 
 ---
 
 ## Clean rebuild
 
-Remove the `build` folder (Explorer, `rm -rf build`, or PowerShell: `Remove-Item -Recurse -Force build`), then:
-
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
+# Linux
+rm -rf build
+
+# Windows PowerShell
+Remove-Item -Recurse -Force build
 ```
+
+Then configure and build again (see [Configure & build](#configure--build)).
 
 ---
 
-## Notes
+## How it works (short)
 
-- **Windows + MSVC:** the project passes `/Zc:preprocessor` for some CUDA 13 + MSVC header setups. On **Linux**, if configure fails on unknown flags, adjust or remove the `target_compile_options(... CUDA ...)` blocks in `CMakeLists.txt` for your toolchain.
-- Ensure OpenCV DLLs / `.so` paths are visible at runtime (e.g. `PATH` or install dir).
+1. OpenCV reads each video frame into host memory (`frame.data`).
+2. `std::memcpy` copies pixels into CUDA managed memory (`d_bgr`).
+3. GPU kernels: grayscale → Sobel → effect → ROI variance per parking spot.
+4. CPU reads variances, classifies free/occupied, draws boxes with OpenCV.

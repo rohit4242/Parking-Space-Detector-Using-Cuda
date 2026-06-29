@@ -103,7 +103,7 @@ int main(int argc, char* argv[])
         launchSobel(d_gray, d_edges, W, H);
 
         // GPU: effect filter — darken color pixels where edges are strong
-        launchEffect(d_bgr, d_edges, d_bgrOut, W, H, 90.0f);
+        launchEffect(d_bgr, d_edges, d_bgrOut, W, H, 50.0f);
 
         // GPU: compute variance for every parking spot simultaneously
         launchROIVariance(d_gray, d_variances, d_posX, d_posY,
