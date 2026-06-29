@@ -65,9 +65,11 @@ int main(int argc, char* argv[])
 
 #ifndef _WIN32
     const char* display = std::getenv("DISPLAY");
-    const bool useGui = display && display[0] != '\0';
-#else
-    const bool useGui = true;
+    if (!display || !display[0]) {
+        std::cerr << "[ERROR] No DISPLAY. SSH from laptop: ssh -Y user@host\n"
+                  << "        Install an X server on your laptop (VcXsrv / XQuartz), then retry.\n";
+        return 1;
+    }
 #endif
 
     unsigned char* d_bgr;
@@ -91,12 +93,10 @@ int main(int argc, char* argv[])
 
     cv::Mat frame;
 
-    if (useGui) {
-        cv::namedWindow("Parking Lot",    cv::WINDOW_NORMAL);
-        cv::namedWindow("Grayscale",      cv::WINDOW_NORMAL);
-        cv::namedWindow("Edge Detection", cv::WINDOW_NORMAL);
-        cv::namedWindow("Effect",         cv::WINDOW_NORMAL);
-    }
+    cv::namedWindow("Parking Lot",    cv::WINDOW_NORMAL);
+    cv::namedWindow("Grayscale",      cv::WINDOW_NORMAL);
+    cv::namedWindow("Edge Detection", cv::WINDOW_NORMAL);
+    cv::namedWindow("Effect",         cv::WINDOW_NORMAL);
 
     while (true) {
         if (!cap.read(frame) || frame.empty()) {
@@ -138,29 +138,23 @@ int main(int argc, char* argv[])
                     cv::Point(10, 50),
                     cv::FONT_HERSHEY_PLAIN, 2, cv::Scalar(0, 200, 0), 3);
 
-        if (useGui) {
-            cv::Mat grayDisplay(H, W, CV_8UC1, d_gray);
-            cv::Mat edgeDisplay(H, W, CV_8UC1, d_edges);
-            cv::Mat effectDisplay(H, W, CV_8UC3, d_bgrOut);
-            cv::imshow("Parking Lot",    frame);
-            cv::imshow("Grayscale",      grayDisplay);
-            cv::imshow("Edge Detection", edgeDisplay);
-            cv::imshow("Effect",         effectDisplay);
+        cv::Mat grayDisplay(H, W, CV_8UC1, d_gray);
+        cv::Mat edgeDisplay(H, W, CV_8UC1, d_edges);
+        cv::Mat effectDisplay(H, W, CV_8UC3, d_bgrOut);
+        cv::imshow("Parking Lot",    frame);
+        cv::imshow("Grayscale",      grayDisplay);
+        cv::imshow("Edge Detection", edgeDisplay);
+        cv::imshow("Effect",         effectDisplay);
 
-            int key = cv::waitKey(200) & 0xFF;
-            if (key == 'q') break;
-            if (key == 's') {
-                cv::imwrite("output_parking.jpg", frame);
-                std::cerr << "[INFO] Screenshot saved as output_parking.jpg\n";
-            }
-        } else {
+        int key = cv::waitKey(200) & 0xFF;
+        if (key == 'q') break;
+        if (key == 's') {
             cv::imwrite("output_parking.jpg", frame);
-            std::cerr << "[INFO] Free: " << freeCount << "/" << numSpots << "\n";
+            std::cerr << "[INFO] Screenshot saved as output_parking.jpg\n";
         }
     }
 
-    if (useGui)
-        cv::destroyAllWindows();
+    cv::destroyAllWindows();
 
     cudaFree(d_bgr);
     cudaFree(d_gray);

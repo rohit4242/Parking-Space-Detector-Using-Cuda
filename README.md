@@ -254,7 +254,25 @@ Paths are relative to your **current working directory**, not the executable. **
 | `q` | Quit |
 | `s` | Save `output_parking.jpg` |
 
-On Linux SSH without `DISPLAY`, GUI windows are skipped automatically; the app writes `output_parking.jpg` each frame and prints `Free: X/N` to the terminal. Stop with **Ctrl+C**.
+### SSH from laptop (see OpenCV windows)
+
+Plain `ssh` has no display — windows open on your **laptop** only with X11 forwarding.
+
+1. Install an X server on your laptop:
+   - **Windows:** [VcXsrv](https://sourceforge.net/projects/vcxsrv/) — run XLaunch (disable native OpenGL if windows fail)
+   - **Mac:** [XQuartz](https://www.xquartz.org/)
+2. Connect with forwarding:
+   ```bash
+   ssh -Y rl22868@deggs206pc05
+   echo $DISPLAY   # should show localhost:10.0 or similar
+   ```
+3. Run:
+   ```bash
+   cd ~/Parking-Space-Detector-Using-Cuda
+   ./build/parking_detector
+   ```
+
+Four windows appear (Parking Lot, Grayscale, Edge Detection, Effect). X11 over the network may feel slow on a GT 1030 — that is normal.
 
 **Windows:** ensure OpenCV DLLs are on `PATH` (vcpkg / OpenCV `bin` folder).
 
@@ -370,7 +388,7 @@ Spot **size** is fixed in code (not in the spots file). Keep these in sync:
 | `undefined reference to __cxa_call_terminate@CXXABI_1.3.15` | OpenCV/GCC ABI mismatch; use latest `CMakeLists.txt` (links `libstdc++` from your `g++`), then `rm -rf build` and reconfigure |
 | `Cannot open video` | Add `data/sample.mp4` or pass video path as arg 2 |
 | `No parking spots loaded` | Check positions file path and `x,y` format |
-| OpenCV windows don't show (SSH) | Normal on SSH — app auto-skips GUI without `DISPLAY` and saves `output_parking.jpg` instead |
+| OpenCV windows don't show (SSH) | Use `ssh -Y` and an X server on your laptop (VcXsrv / XQuartz); check `echo $DISPLAY` |
 | Windows: DLL not found | Add OpenCV `bin` to `PATH` |
 
 ---
