@@ -365,6 +365,7 @@ Spot **size** is fixed in code (not in the spots file). Keep these in sync:
 | Linux: `unknown argument '/Zc:preprocessor'` | Use updated `CMakeLists.txt` with `if(MSVC)` |
 | `no kernel image is available` | Wrong `CUDA_ARCH`; use e.g. `61` for GT 1030 |
 | nvcc: `unsupported GNU version` | `-DCMAKE_CUDA_HOST_COMPILER=/usr/bin/g++-13` |
+| `undefined reference to __cxa_call_terminate@CXXABI_1.3.15` | OpenCV/GCC ABI mismatch; use latest `CMakeLists.txt` (links `libstdc++` from your `g++`), then `rm -rf build` and reconfigure |
 | `Cannot open video` | Add `data/sample.mp4` or pass video path as arg 2 |
 | `No parking spots loaded` | Check positions file path and `x,y` format |
 | OpenCV windows don't show (SSH) | Need local display or X11 forwarding; app uses `cv::imshow` |
