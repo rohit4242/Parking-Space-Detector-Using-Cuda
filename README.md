@@ -254,6 +254,8 @@ Paths are relative to your **current working directory**, not the executable. **
 | `q` | Quit |
 | `s` | Save `output_parking.jpg` |
 
+On Linux SSH without `DISPLAY`, GUI windows are skipped automatically; the app writes `output_parking.jpg` each frame and prints `Free: X/N` to the terminal. Stop with **Ctrl+C**.
+
 **Windows:** ensure OpenCV DLLs are on `PATH` (vcpkg / OpenCV `bin` folder).
 
 **Linux:** if missing `.so` errors:
@@ -368,7 +370,7 @@ Spot **size** is fixed in code (not in the spots file). Keep these in sync:
 | `undefined reference to __cxa_call_terminate@CXXABI_1.3.15` | OpenCV/GCC ABI mismatch; use latest `CMakeLists.txt` (links `libstdc++` from your `g++`), then `rm -rf build` and reconfigure |
 | `Cannot open video` | Add `data/sample.mp4` or pass video path as arg 2 |
 | `No parking spots loaded` | Check positions file path and `x,y` format |
-| OpenCV windows don't show (SSH) | Need local display or X11 forwarding; app uses `cv::imshow` |
+| OpenCV windows don't show (SSH) | Normal on SSH — app auto-skips GUI without `DISPLAY` and saves `output_parking.jpg` instead |
 | Windows: DLL not found | Add OpenCV `bin` to `PATH` |
 
 ---

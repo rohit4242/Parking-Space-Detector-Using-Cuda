@@ -4,6 +4,7 @@
 #include <sstream>
 #include <vector>
 #include <string>
+#include <cstring>
 #include <cuda_runtime.h>
 
 #include "kernels.cuh"
@@ -62,6 +63,13 @@ int main(int argc, char* argv[])
     int H = (int)cap.get(cv::CAP_PROP_FRAME_HEIGHT);
     std::cerr << "[INFO] Video: " << W << "x" << H << "\n";
 
+#ifndef _WIN32
+    const char* display = std::getenv("DISPLAY");
+    const bool useGui = display && display[0] != '\0';
+#else
+    const bool useGui = true;
+#endif
+
     unsigned char* d_bgr;
     unsigned char* d_gray;
     unsigned char* d_edges;
@@ -83,10 +91,12 @@ int main(int argc, char* argv[])
 
     cv::Mat frame;
 
-    cv::namedWindow("Parking Lot",    cv::WINDOW_NORMAL);
-    cv::namedWindow("Grayscale",      cv::WINDOW_NORMAL);
-    cv::namedWindow("Edge Detection", cv::WINDOW_NORMAL);
-    cv::namedWindow("Effect",         cv::WINDOW_NORMAL);
+    if (useGui) {
+        cv::namedWindow("Parking Lot",    cv::WINDOW_NORMAL);
+        cv::namedWindow("Grayscale",      cv::WINDOW_NORMAL);
+        cv::namedWindow("Edge Detection", cv::WINDOW_NORMAL);
+        cv::namedWindow("Effect",         cv::WINDOW_NORMAL);
+    }
 
     while (true) {
         if (!cap.read(frame) || frame.empty()) {
@@ -96,20 +106,12 @@ int main(int argc, char* argv[])
 
         std::memcpy(d_bgr, frame.data, W * H * 3);
 
-        // GPU: convert to grayscale
         launchGrayscale(d_bgr, d_gray, W, H);
-
-        // GPU: Sobel edge detection on the grayscale image
         launchSobel(d_gray, d_edges, W, H);
-
-        // GPU: effect filter — darken color pixels where edges are strong
         launchEffect(d_bgr, d_edges, d_bgrOut, W, H, 50.0f);
-
-        // GPU: compute variance for every parking spot simultaneously
         launchROIVariance(d_gray, d_variances, d_posX, d_posY,
                           numSpots, ROI_W, ROI_H, W);
 
-        // Wait for GPU to finish before reading results on CPU
         checkCuda(cudaDeviceSynchronize(), "sync");
 
         int freeCount = 0;
@@ -136,23 +138,29 @@ int main(int argc, char* argv[])
                     cv::Point(10, 50),
                     cv::FONT_HERSHEY_PLAIN, 2, cv::Scalar(0, 200, 0), 3);
 
-        cv::Mat grayDisplay(H, W, CV_8UC1, d_gray);
-        cv::Mat edgeDisplay(H, W, CV_8UC1, d_edges);
-        cv::Mat effectDisplay(H, W, CV_8UC3, d_bgrOut);
-        cv::imshow("Parking Lot",    frame);
-        cv::imshow("Grayscale",      grayDisplay);
-        cv::imshow("Edge Detection", edgeDisplay);
-        cv::imshow("Effect",         effectDisplay);
+        if (useGui) {
+            cv::Mat grayDisplay(H, W, CV_8UC1, d_gray);
+            cv::Mat edgeDisplay(H, W, CV_8UC1, d_edges);
+            cv::Mat effectDisplay(H, W, CV_8UC3, d_bgrOut);
+            cv::imshow("Parking Lot",    frame);
+            cv::imshow("Grayscale",      grayDisplay);
+            cv::imshow("Edge Detection", edgeDisplay);
+            cv::imshow("Effect",         effectDisplay);
 
-        int key = cv::waitKey(200) & 0xFF;
-        if (key == 'q') break;
-        if (key == 's') {
+            int key = cv::waitKey(200) & 0xFF;
+            if (key == 'q') break;
+            if (key == 's') {
+                cv::imwrite("output_parking.jpg", frame);
+                std::cerr << "[INFO] Screenshot saved as output_parking.jpg\n";
+            }
+        } else {
             cv::imwrite("output_parking.jpg", frame);
-            std::cerr << "[INFO] Screenshot saved as output_parking.jpg\n";
+            std::cerr << "[INFO] Free: " << freeCount << "/" << numSpots << "\n";
         }
     }
 
-    cv::destroyAllWindows();
+    if (useGui)
+        cv::destroyAllWindows();
 
     cudaFree(d_bgr);
     cudaFree(d_gray);
